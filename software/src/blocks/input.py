@@ -2,9 +2,9 @@ import struct
 import time
 import numpy as np
 from .block import Block
-from dsa2k_f.error_levels import *
+from ..error_levels import *
 
-class Input(Block):
+class input(Block):
     """
     Instantiate a control interface for an Input block. This block
     allows switching data streams between constant-zeros, digital noise,
@@ -33,8 +33,8 @@ class Input(Block):
     """
     _SNAPSHOT_SAMPLES_PER_POL = 16384
 
-    def __init__(self, host, name, n_signals=2, n_streams=16, dtype='>i2', logger=None):
-        super(Input, self).__init__(host, name, logger)
+    def __init__(self, host, name, n_signals=2, n_streams=16, dtype='>i2', logger=None, **kwargs):
+        super(input, self).__init__(host, name, logger, **kwargs)
         self.n_streams = n_streams
         self.n_signals = n_signals
         self.dtype = dtype

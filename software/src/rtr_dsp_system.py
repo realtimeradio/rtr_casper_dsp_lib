@@ -88,8 +88,9 @@ class RtrDspSystem():
             self.logger.error(f'Failed to read and decode {fpgfile}')
             raise RuntimeError
 
-        # Scrape blocks based on info blocks
-        blocks = {}
+        # Scrape blocks based on info blocks.
+        # Always add a system block
+        blocks = {'system': system(self._cfpga, self.logger)}
         for devname, device in self._cfpga.devices.items():
             if not isinstance(device, dict): continue
             tag = device.get('tag', '')
@@ -108,8 +109,13 @@ class RtrDspSystem():
             self.logger.debug(f'Creating block from {info}')
             block_name, block = build_block(info, self._cfpga, self.logger)
             self.logger.info(f'Created block {block_name}')
+            if block_name is None:
+                self.logger.warning('Failed to create a block')
+                continue
             blocks[block_name] = block
         self.blocks = blocks
+        for bn, block in self.blocks.items():
+            self.__setattr__(bn, block)
 
     def is_connected(self):
         """
@@ -152,14 +158,14 @@ class RtrDspSystem():
         """
         stats = {}
         flags = {}
-        if not self.blocks['fpga'].is_programmed():
-            stats['fpga'], flags['fpga'] = self.blocks['fpga'].get_status()
-        else:
-            for blockname, block in self.blocks.items():
-                try:
-                    stats[blockname], flags[blockname] = block.get_status()
-                except:
-                    self.logger.info("Failed to poll stats from block %s" % blockname)
+        #if not self.blocks['fpga'].is_programmed():
+        #    stats['fpga'], flags['fpga'] = self.blocks['fpga'].get_status()
+        #else:
+        for blockname, block in self.blocks.items():
+            try:
+                stats[blockname], flags[blockname] = block.get_status()
+            except:
+                self.logger.info("Failed to poll stats from block %s" % blockname)
         return stats, flags
 
     def print_status_all(self, use_color=True, ignore_ok=False):
@@ -177,13 +183,13 @@ class RtrDspSystem():
         :type ignore_ok: bool
 
         """
-        if not self.blocks['fpga'].is_programmed():
-            print('FPGA stats (not programmed with F-engine image):')
-            self.blocks['fpga'].print_status()
-        else:
-            for blockname, block in self.blocks.items():
-                print('Block %s stats:' % blockname)
-                block.print_status(use_color=use_color, ignore_ok=ignore_ok)
+        #if not self.blocks['fpga'].is_programmed():
+        #    print('FPGA stats (not programmed with F-engine image):')
+        #    self.blocks['fpga'].print_status()
+        #else:
+        for blockname, block in self.blocks.items():
+            print('Block %s stats:' % blockname)
+            block.print_status(use_color=use_color, ignore_ok=ignore_ok)
 
     def deprogram(self):
         """
@@ -191,7 +197,7 @@ class RtrDspSystem():
         """
         self._cfpga.transport.progdev(0)
 
-    def program(self, fpgfile):
+    def program(self, fpgfile=None):
         """
         Program an .fpg file to an FPGA. 
 
@@ -201,6 +207,7 @@ class RtrDspSystem():
         :type fpgfile: str
 
         """
+        fpgfile = fpgfile or self.fpgfile
 
         if not isinstance(fpgfile, str):
             raise TypeError("wrong type for fpgfile")
