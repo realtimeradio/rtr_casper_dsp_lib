@@ -27,16 +27,18 @@ def build_block(info, cfpga, logger):
     block_type = info.pop('block_type', '')
     assert block_type.startswith('rtr:')
     block_type = block_type.split(':', maxsplit=1)[1]
+    block_type = block_type.replace('-', '_') #TODO: just don't use hyphens in the simulink tags
     block_name = info.pop('block_name', '')
     # strip off model name
     block_name = block_name.split('/', maxsplit=1)[1]
     block_name = block_name.replace('/', '_')
     try:
         blkclass = globals()[block_type]
+        logger.info(f'Found class {block_type}')
     except KeyError:
         logger.error(f'No class {block_type} available')
         return None, None
-    block = blkclass(cfpga, block_name, logger, **info)
+    block = blkclass(cfpga, block_name, logger=logger, **info)
     return block_name, block
 
 
@@ -108,10 +110,10 @@ class RtrDspSystem():
             # If we made it to here, the block should be an RTR-supported one
             self.logger.debug(f'Creating block from {info}')
             block_name, block = build_block(info, self._cfpga, self.logger)
-            self.logger.info(f'Created block {block_name}')
             if block_name is None:
                 self.logger.warning('Failed to create a block')
                 continue
+            self.logger.info(f'Created block {block_name}')
             blocks[block_name] = block
         self.blocks = blocks
         for bn, block in self.blocks.items():

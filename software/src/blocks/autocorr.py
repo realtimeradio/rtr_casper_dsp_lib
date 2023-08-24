@@ -4,19 +4,11 @@ import numpy as np
 from scipy.signal import medfilt
 
 from .block import Block
-from dsa2k_f.error_levels import *
 
-class AutoCorr(Block):
+class autocorr(Block):
     """
     Instantiate a control interface for an Auto-Correlation block. This
     provides auto-correlation spectra of post-FFT data.
-
-    In order to save FPGA resourece, the auto-correlation block may use a single
-    correlation core to compute the auto-correlation of a subset of the total
-    number of ADC channels at any given time. This is the case when the
-    block is instantiated with ``n_cores > 1`` and ``use_mux=True``.
-    In this case, auto-correlation spectra are captured ``n_signals / n_cores``
-    channels at a time. 
 
     :param host: CasperFpga interface for host.
     :type host: casperfpga.CasperFpga
@@ -27,47 +19,48 @@ class AutoCorr(Block):
     :param logger: Logger instance to which log messages should be emitted.
     :type logger: logging.Logger
 
-    :param acc_len: Accumulation length initialization value, in spectra.
-    :type acc_len: int
+    :param init_acc_len: Accumulation length initialization value, in spectra.
+    :type init_acc_len: int
 
-    :param n_chans: Number of frequency channels.
-    :type n_chans: int
+    :param n_chan_serial_bits: Number of frequency channels processed serially (2^?)
+    :type n_chan_serial_bits: int
 
-    :param n_signals: Number of individual data streams.
-    :type n_signals: int
+    :param n_chan_parallel_bits: Number of frequency channels processed in parallel (2^?)
+    :type n_chan_parallel_bits: int
 
-    :param n_parallel_streams: Number of streams processed by the firmware
-        module in parallel.
-    :type n_parallel_streams: int
+    :param n_input_serial_bits: Number of individual signals processed serially (2^?)
+    :type n_input_serial_bits: int
 
-    :param n_cores: Number of accumulation cores in firmware design.
-    :type n_cores: int
+    :param n_input: Total number of individual signals processed
+    :type n_input: int
 
-    :param use_mux: If True, only one core is instantiated and a multiplexer
-        is used to switch different inputs into it. If False, multiple
-        cores are instantiated simultaneously in firmware.
-    :type use_mux: bool
+    :param n_input_serial_bits: Number of inputs processed serially (2^?)
+    :type n_input_serial_bits: int
 
-    :ivar n_signals_per_block: Number of signal streams handled by a
+    :ivar n_input_per_block: Number of signal streams handled by a
         single correlation core.
     """
+    _dtype = '>f4'
     def __init__(self, host, name,
-                 acc_len=2**15,
+                 n_chan_serial_bits,
+                 n_chan_parallel_bits,
+                 n_input_serial_bits,
+                 n_input,
+                 init_acc_len=2**15,
                  logger=None,
-                 n_chans=4096,
-                 n_signals=64,
-                 n_parallel_streams=8,
-                 n_cores=4,
-                 use_mux=True,
+                 **kwargs,
                 ):
-        super(AutoCorr, self).__init__(host, name, logger)
-        self.n_chans = n_chans
-        self._acc_len = acc_len
-        self.n_signals = n_signals
-        self._n_parallel_streams = n_parallel_streams
-        self._n_cores = n_cores
-        self._use_mux = use_mux
-        self.n_signals_per_block = self.n_signals // self._n_cores
+        super(autocorr, self).__init__(host, name, logger)
+        self._init_acc_len = init_acc_len
+        self.n_chan = 2**(n_chan_serial_bits + n_chan_parallel_bits)
+        self._n_chan_serial_bits = n_chan_serial_bits
+        self._n_chan_parallel_bits = n_chan_parallel_bits
+        self.n_input = n_input
+        self._n_input_serial_bits = n_input_serial_bits
+        self._acc_len = init_acc_len
+
+        self._n_cores = n_input // (2**self._n_input_serial_bits)
+        self.n_input_per_block = n_input // self._n_cores
 
     def get_acc_cnt(self):
         """
@@ -96,57 +89,33 @@ class AutoCorr(Block):
             cnt1 = self.get_acc_cnt()
         return cnt1
 
-    def _set_mux(self, sel):
-        """
-        Set the core input multiplexer select value.
-
-        :param sel: Multiplexer select value.
-        :type sel: int
-        """
-        if not self._use_mux:
-            return
-        if sel >= self._n_cores:
-            self.logger.error("Cannot select input %d when there are only %d cores" % (sel, self._n_cores))
-            return
-        self.write_int('mux_sel', sel)
-
-    def _get_mux(self):
-        """
-        Get the core input multiplexer select value.
-
-        :return sel: Current multiplexer select value
-        :rtype sel: int
-
-        """
-        return self.read_uint('mux_sel')
-
-    def _read_bram(self):
+    def _read_bram(self, offset=0):
         """ 
         Read RAM containing autocorrelation spectra for all signals in a core.
 
+        :param offset: If non-zero, offset BRAM read IDs by this amount.
+            Only useful if using this method in a subclassed block
+            which adds extra brams with other functionality.
+        :type offset: int
+
         :return: Array of autocorrelation data, in float32 format. Array
-            dimensions are [POLARIZATIONS, FREQUENCY CHANNEL].
+            dimensions are [INPUTS, FREQUENCY CHANNEL].
         :rtype: numpy.array
         """
-        if self._use_mux:
-            dout = np.zeros([self.n_signals_per_block, self.n_chans], dtype=np.float32)
-            read_loop_range = range(1)
-        else:
-            dout = np.zeros([self.n_signals, self.n_chans], dtype=np.float32)
-            read_loop_range = range(self._n_cores)
-        n_words_per_stream = self.n_signals_per_block * self.n_chans // self._n_parallel_streams
-        n_chans_per_stream = self.n_chans // self._n_parallel_streams
+        dout = np.zeros([self.n_input, self.n_chan], dtype=np.float32)
+        read_loop_range = range(self._n_cores)
+        n_words_per_stream = self.n_input_per_block * self.n_chan // (2**self._n_chan_parallel_bits)
+        n_chan_per_stream = self.n_chan // (2**self._n_chan_parallel_bits)
         for core in read_loop_range:
-            for stream in range(self._n_parallel_streams):
-                if self._use_mux:
-                    ramname = 'common_dout%d_bram' % (stream) # Why call it "common" rather than 0?!
-                else:
-                    ramname = '%d_dout%d_bram' % (core, stream)
+            for stream in range(2**self._n_chan_parallel_bits):
+                ram_id = stream + offset
+                ramname = f'{core}_dout{ram_id}_bram'
                 raw = self.read(ramname, 4*n_words_per_stream)
-                x = struct.unpack('>%df' % n_words_per_stream, raw)
-                for subsignal in range(self.n_signals_per_block):
-                    dout[core*self.n_signals_per_block + subsignal, stream::self._n_parallel_streams] = \
-                        x[subsignal*n_chans_per_stream:(subsignal+1)*n_chans_per_stream]
+                x = np.frombuffer(raw, self._dtype)
+                #x = struct.unpack(f'>{n_words_per_stream}f', raw)
+                for subsignal in range(self.n_input_per_block):
+                    dout[core*self.n_input_per_block + subsignal, stream::2**self._n_chan_parallel_bits] = \
+                        x[subsignal*n_chan_per_stream:(subsignal+1)*n_chan_per_stream]
         return dout
 
     def _arm_readout(self):
@@ -159,18 +128,9 @@ class AutoCorr(Block):
         self.write_int('trig', 1)
         self.write_int('trig', 0)
     
-    def get_new_spectra(self, signal_block=0, flush_vacc='auto', filter_ksize=None):
+    def get_new_spectra(self, flush_vacc='auto', wait_on_new=True, filter_ksize=None):
         """
         Get a new average power spectra.
-
-        :param signal_block: If using multiplexing, read data for this signal
-            block. If not using multiplexing, this parameter does nothing, and
-            data from all inputs will be returned.
-            When multiplexing, Each call will return data for inputs
-            ``self.n_signals_per_block x signal_block`` to
-            ``self.n_signals_per_block x (signal_block+1) - 1``.
-
-        :type signal_block: int
 
         :param flush_vacc: If ``True``, throw away a spectra before grabbing a valid
             one. This can be useful if the upstream analog settings may have changed
@@ -178,6 +138,10 @@ class AutoCorr(Block):
             available. If ``'auto'`` perform a flush if the input multiplexer has
             changed positions.
         :type flush_vacc: Bool or string
+
+        :param wait_on_new: If True, arm and wait for a new accumulation before
+            reading RAMs.
+        :type wait_on_new: bool
 
         :param filter_ksize: If not None, apply a spectral median filter
             with this kernel size. The kernet size should be odd.
@@ -193,18 +157,12 @@ class AutoCorr(Block):
         assert filter_ksize is None or filter_ksize % 2 == 1, "Filter kernel size should be odd"
 
         auto_flush = False
-        if self._use_mux:
-            if flush_vacc == 'auto':
-                old_mux_state = self._get_mux()
-            self._set_mux(signal_block)
-            if flush_vacc == 'auto' and signal_block != old_mux_state:
-                self._debug("Will auto-flush vacc because multiplexer changed state")
-                auto_flush = True
         if flush_vacc == True or auto_flush:
             self._debug("Flushing accumulation")
             self._wait_for_acc()
-        self._arm_readout()
-        acc_cnt = self._wait_for_acc()
+        if wait_on_new:
+            self._arm_readout()
+            acc_cnt = self._wait_for_acc()
         spec = self._read_bram() / float(self.get_acc_len())
         nsignals, nchans = spec.shape
         if filter_ksize is not None:
@@ -213,9 +171,9 @@ class AutoCorr(Block):
 
         return spec
 
-    def plot_all_spectra(self, db=True, show=True, filter_ksize=None):
+    def plot_spectra(self, db=True, show=True, filter_ksize=None):
         """
-        Plot the spectra of all signals,
+        Plot the spectra of all signals in a single signal_block,
         with accumulation length divided out
         
         :param db: If True, plot 10log10(power). Else, plot linear.
@@ -233,13 +191,7 @@ class AutoCorr(Block):
         """
         assert filter_ksize is None or filter_ksize % 2 == 1, "Filter kernel size should be odd"
         from matplotlib import pyplot as plt
-        specs = np.zeros([self.n_signals, self.n_chans], dtype=float)
-        if self._use_mux:
-            for i in range(self._n_cores):
-                specs[i*self.n_signals_per_block:(i+1)*self.n_signals_per_block] = \
-                    self.get_new_spectra(i, filter_ksize=filter_ksize)
-        else:
-            specs = self.get_new_spectra(filter_ksize=filter_ksize)
+        specs = self.get_new_spectra(filter_ksize=filter_ksize)
         f, ax = plt.subplots(1,1)
         if db:
             ax.set_ylabel('Power [dB]')
@@ -249,54 +201,6 @@ class AutoCorr(Block):
         ax.set_xlabel('Frequency Channel')
         for speci, spec in enumerate(specs):
             ax.plot(spec, label="signal_%d" % (speci))
-        ax.legend()
-        if show:
-            plt.show()
-        return f
-
-    def plot_spectra(self, signal_block=0, db=True, show=True, filter_ksize=None):
-        """
-        Plot the spectra of all signals in a single signal_block,
-        with accumulation length divided out
-        
-        :param signal_block: If using multiplexing, plot data for this signal
-            block. If not using multiplexing, this parameter does nothing, and
-            data from all inputs will be plotted.
-            When multiplexing, Each call will plot data for inputs
-            ``self.n_signals_per_block x signal_block`` to
-            ``self.n_signals_per_block x (signal_block+1) - 1``.
-
-        :type signal_block: int
-
-        :param db: If True, plot 10log10(power). Else, plot linear.
-        :type db: bool
-
-        :param show: If True, call matplotlib's `show` after plotting
-        :type show: bool
-
-        :param filter_ksize: If not None, apply a spectral median filter
-            with this kernel size. The kernet size should be odd.
-        :type filter_ksize: int
-
-        :return: matplotlib.Figure
-
-        """
-        assert filter_ksize is None or filter_ksize % 2 == 1, "Filter kernel size should be odd"
-        from matplotlib import pyplot as plt
-        specs = self.get_new_spectra(signal_block, filter_ksize=filter_ksize)
-        f, ax = plt.subplots(1,1)
-        if db:
-            ax.set_ylabel('Power [dB]')
-            specs = 10*np.log10(specs)
-        else:
-            ax.set_ylabel('Power [linear]')
-        ax.set_xlabel('Frequency Channel')
-        if self._use_mux:
-            channel_offset = signal_block * self.n_signals_per_block
-        else:
-            channel_offset = 0
-        for speci, spec in enumerate(specs):
-            ax.plot(spec, label="signal_%d" % (channel_offset + speci))
         ax.legend()
         if show:
             plt.show()
@@ -355,4 +259,4 @@ class AutoCorr(Block):
         if read_only:
             self.get_acc_len()
         else:
-            self.set_acc_len(self._acc_len)
+            self.set_acc_len(self._init_acc_len)

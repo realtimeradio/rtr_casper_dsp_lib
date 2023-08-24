@@ -33,12 +33,25 @@ class Block(object):
         # Multiple hosts should *not* share the same logger, since we can multithread over hosts.
         self.logger = logger or helpers.add_default_log_handlers(logging.getLogger(__name__ + ":%s" % (host.host)))
         self.name = name
+        self.snapshots = {}
         if (name is None) or (name == ''):
             self.prefix = ''
         else:
             self.prefix = name + '_'
         for k, v in kwargs.items():
             self.__setattr__(k, v)
+        self._scrape_snapshots()
+
+    def _scrape_snapshots(self):
+        """
+        Get this block's snapshot objects and save them in the
+        snapshots attribute.
+        """
+        self.snapshots = {}
+        for ss_name in self.host.snapshots.keys(): # snapshots looks like a dict but isn't
+            if ss_name.startswith(self.prefix):
+                local_name = ss_name[len(self.prefix):]
+                self.snapshots[local_name] = self.host.snapshots[ss_name]
 
     def _prefix_log(self, msg):
         """
