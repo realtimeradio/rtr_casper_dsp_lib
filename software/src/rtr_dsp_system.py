@@ -194,8 +194,8 @@ class RtrDspSystem():
         #    self.blocks['fpga'].print_status()
         #else:
         for blockname, block in self.blocks.items():
-            print('Block %s stats:' % blockname)
-            block.print_status(use_color=use_color, ignore_ok=ignore_ok)
+            print('%s block stats:' % blockname)
+            block.print_status(use_color=use_color, ignore_ok=ignore_ok, prefix='\t')
 
     def deprogram(self):
         """

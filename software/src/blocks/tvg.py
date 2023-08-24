@@ -1,7 +1,7 @@
 import numpy as np
 import struct
 from .block import Block
-from dsa2k_f.error_levels import *
+from ..error_levels import *
 
 class tvg(Block):
     """

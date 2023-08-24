@@ -112,7 +112,7 @@ class Block(object):
         flags_dict = {}
         return status_dict, flags_dict
 
-    def print_status(self, use_color=True, ignore_ok=False):
+    def print_status(self, use_color=True, ignore_ok=False, prefix=''):
         """
         Print the information returned by `get_status`, highlighting error flags
         with colors.
@@ -123,6 +123,10 @@ class Block(object):
         :param ignore_ok: If True, only print status values which are outside the
            normal range.
         :type ignore_ok: bool
+
+        :param prefix: String to print on each line prior to status. Useful to add
+           indentations when calling this method underneath a "title".
+        :type prefix: str
         """
         colormap = {
             el.RTR_OK: 'green',
@@ -145,7 +149,7 @@ class Block(object):
             if ignore_ok and err == el.RTR_OK:
                 continue
             color = colormap[err]
-            msg = '%s: %s' % (k, v)
+            msg = f'{prefix}{k}: {v}'
             if use_color:
                 print(colored(msg, color))
             else:
