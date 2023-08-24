@@ -5,4 +5,5 @@ from .autocorr_maxhold import autocorr_maxhold
 from .input import input
 from .pfb import pfb
 from .sync import sync
+from .tvg import tvg
 from .version import version
