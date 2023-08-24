@@ -117,3 +117,40 @@ class adc(Block):
             plt.show()
         return fig
 
+    def plot_spectrum(self, db=False, acc_len=1, show=True):
+        """
+        Plot a power spectrum of the ADC input stream using a simple FFT.
+
+        :param db: If True, plot in dBs, else linear.
+        :type db: bool
+
+        :param show: If True, call show() after plotting.
+        :type show: bool
+
+        :param acc_len: Number of snapshots to sum.
+        :type acc_len: int
+
+        :return: matplotlib figure instance
+        :rtype: matploitlib.Figure
+        """
+        from matplotlib import pyplot as plt
+        x = self.get_snapshot()
+        X = np.abs(np.fft.fft(x, axis=1))**2
+        if acc_len > 1:
+            for i in range(acc_len-1):
+                x = self.get_snapshot()
+                X += np.abs(np.fft.fft(x, axis=1))**2
+        if db:
+            X = 10*np.log10(X)
+        fig = plt.figure()
+        for i in range(X.shape[0]):
+            plt.plot(np.fft.fftshift(X[i]), label=i)
+        plt.legend()
+        plt.xlabel('FFT bin (DC-centered)')
+        if db:
+            plt.ylabel('Power (dB; Arbitrary Reference)')
+        else:
+            plt.ylabel('Power (Linear, Arbitrary Reference)')
+        if show:
+            plt.show()
+        return fig
