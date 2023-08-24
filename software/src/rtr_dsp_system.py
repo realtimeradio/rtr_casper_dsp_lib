@@ -38,7 +38,11 @@ def build_block(info, cfpga, logger):
     except KeyError:
         logger.error(f'No class {block_type} available')
         return None, None
-    block = blkclass(cfpga, block_name, logger=logger, **info)
+    try:
+        block = blkclass(cfpga, block_name, logger=logger, **info)
+    except TypeError:
+        logger.exception(f'Error instantiating class {block_type}')
+        return None, None
     return block_name, block
 
 
