@@ -40,7 +40,7 @@ class autocorr_maxhold(autocorr):
     :ivar n_input_per_block: Number of signal streams handled by a
         single correlation core.
     """
-    _dtype = '>u4'
+    _maxhold_dtype = '>u4'
     _bin_pt = 30
     def get_new_maxhold(self, flush_vacc='auto', wait_on_new=True):
         """
@@ -71,7 +71,8 @@ class autocorr_maxhold(autocorr):
         if wait_on_new:
             self._arm_readout()
             acc_cnt = self._wait_for_acc()
-        spec = self._read_bram(offset=2**self._n_chan_parallel_bits) / (2**self._bin_pt)
+        spec = self._read_bram(offset=2**self._n_chan_parallel_bits,
+                dtype = self._maxhold_dtype) / (2**self._bin_pt)
         nsignals, nchans = spec.shape
         return spec
 

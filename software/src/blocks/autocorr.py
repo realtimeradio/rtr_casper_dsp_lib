@@ -89,7 +89,7 @@ class autocorr(Block):
             cnt1 = self.get_acc_cnt()
         return cnt1
 
-    def _read_bram(self, offset=0):
+    def _read_bram(self, offset=0, dtype=None):
         """ 
         Read RAM containing autocorrelation spectra for all signals in a core.
 
@@ -98,11 +98,17 @@ class autocorr(Block):
             which adds extra brams with other functionality.
         :type offset: int
 
+        :param dtype: If provided, interpret data using this data type rather than
+            that of the ``_dtype`` attribute. Should be a numpy parseable type string,
+            e.g. '>u4'.
+        :type dtype: str
+
         :return: Array of autocorrelation data, in float32 format. Array
             dimensions are [INPUTS, FREQUENCY CHANNEL].
         :rtype: numpy.array
         """
-        dout = np.zeros([self.n_input, self.n_chan], dtype=np.float32)
+        dtype = dtype or self._dtype
+        dout = np.zeros([self.n_input, self.n_chan], dtype=dtype)
         read_loop_range = range(self._n_cores)
         n_words_per_stream = self.n_input_per_block * self.n_chan // (2**self._n_chan_parallel_bits)
         n_chan_per_stream = self.n_chan // (2**self._n_chan_parallel_bits)
@@ -111,7 +117,7 @@ class autocorr(Block):
                 ram_id = stream + offset
                 ramname = f'{core}_dout{ram_id}_bram'
                 raw = self.read(ramname, 4*n_words_per_stream)
-                x = np.frombuffer(raw, self._dtype)
+                x = np.frombuffer(raw, dtype)
                 #x = struct.unpack(f'>{n_words_per_stream}f', raw)
                 for subsignal in range(self.n_input_per_block):
                     dout[core*self.n_input_per_block + subsignal, stream::2**self._n_chan_parallel_bits] = \
