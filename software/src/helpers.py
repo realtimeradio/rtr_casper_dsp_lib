@@ -90,6 +90,18 @@ def get_casper_fft_descramble(n_bit_fft, n_bit_parallel):
     n_parallel = 2**n_bit_parallel
     return np.arange(n_fft).reshape(n_fft // n_parallel, n_parallel).transpose().flatten()
 
+def get_casper_fft_scramble(n_bit_fft, n_bit_parallel):
+    """
+    Get the scramble map for a CASPER FFT with
+    2**n_bit_fft channels, presenting 2**n_bit_parallel
+    on each cycle
+    """
+    descramble = get_casper_fft_descramble(n_bit_fft, n_bit_parallel)
+    scramble = np.zeros_like(descramble)
+    for i,j in enumerate(descramble):
+        scramble[j] = i
+    return scramble
+
 def bit_reverse(x, n_bit):
     """
     Return the n_bit bit-reversed integer of x

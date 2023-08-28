@@ -64,7 +64,7 @@ class autocorr(Block):
         self.n_input = n_input
         self._n_input_serial_bits = n_input_serial_bits
         self._acc_len = init_acc_len
-        self._is_descrambled = is_descrambled
+        self._is_descrambled = is_descrambled == "on"
         self._descramble_order = get_casper_fft_descramble(self._n_chan_bits, self._n_chan_parallel_bits)
 
         self._n_cores = n_input // (2**self._n_input_serial_bits)

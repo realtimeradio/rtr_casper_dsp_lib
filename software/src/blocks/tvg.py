@@ -2,6 +2,7 @@ import numpy as np
 import struct
 from .block import Block
 from ..error_levels import *
+from ..helpers import get_casper_fft_scramble
 
 class tvg(Block):
     """
@@ -23,12 +24,22 @@ class tvg(Block):
     :param n_chan: Number of frequency channels.
     :type n_chan: int
 
+    :param n_chan_serial_bits: Number of channels output in serial (2^?).
+        This parameter only has an effect if use_scramble=True.
+    :param n_chan_serial_bits: int
+
     :param dtype: Numpy-style data type of test vector words. E.g. '>u4'
     :type dtype: str
 
+    :param use_scramble: If True, apply a channel ordering scramble prior
+        to uploading a test pattern. This may be useful if a downstream
+        block is performing a scramble operation.
+    :type use_scramble: bool
+
     """
-    _FORMAT = 'B'
-    def __init__(self, host, name, n_input, n_chan, dtype, logger=None, **kwargs):
+    #_FORMAT = 'B'
+    def __init__(self, host, name, n_input, n_chan, n_chan_serial_bits,
+            use_descramble, dtype, logger=None, **kwargs):
         super(tvg, self).__init__(host, name, logger=logger, **kwargs)
         self.n_input = n_input
         self.n_chan = n_chan
@@ -36,6 +47,14 @@ class tvg(Block):
         self._n_byte_per_word = np.dtype(dtype).itemsize
         # number of bytes in a single stream
         self._input_vector_size = n_chan * self._n_byte_per_word
+        self._use_scramble = use_descramble == "on"
+        if self._use_scramble:
+            assert self.n_chan % 2**n_chan_serial_bits == 0
+            n_chan_bits = int(np.ceil(np.log2(self.n_chan)))
+            n_chan_parallel_bits = n_chan_bits - n_chan_serial_bits
+            self._scramble_order = get_casper_fft_scramble(n_chan_bits, n_chan_parallel_bits)
+        else:
+            self._scramble_order = np.arange(self.n_chan)
 
     def tvg_enable(self):
         """
@@ -71,7 +90,7 @@ class tvg(Block):
         :type test_vector: list or numpy.ndarray
 
         """
-        tv = np.array(test_vector, dtype=self.dtype)
+        tv = np.array(test_vector, dtype=self.dtype)[self._scramble_order]
         assert (tv.shape[0] == self.n_chan), "Test vector should have self.n_chan elements!"
         core_name = f'0_{stream}'
         self.write(core_name, tv.tobytes())
