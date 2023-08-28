@@ -4,6 +4,7 @@ import numpy as np
 from scipy.signal import medfilt
 
 from .block import Block
+from ..helpers import get_casper_fft_descramble
 
 class autocorr(Block):
     """
@@ -37,6 +38,9 @@ class autocorr(Block):
     :param n_input_serial_bits: Number of inputs processed serially (2^?)
     :type n_input_serial_bits: int
 
+    :param is_descrambled: If False, apply descrable map to channel ordering on read.
+    :type is_descrambled: bool
+
     :ivar n_input_per_block: Number of signal streams handled by a
         single correlation core.
     """
@@ -47,17 +51,21 @@ class autocorr(Block):
                  n_input_serial_bits,
                  n_input,
                  init_acc_len=2**15,
+                 is_descrambled=False,
                  logger=None,
                  **kwargs,
                 ):
         super(autocorr, self).__init__(host, name, logger)
         self._init_acc_len = init_acc_len
-        self.n_chan = 2**(n_chan_serial_bits + n_chan_parallel_bits)
         self._n_chan_serial_bits = n_chan_serial_bits
         self._n_chan_parallel_bits = n_chan_parallel_bits
+        self._n_chan_bits = n_chan_parallel_bits + n_chan_serial_bits
+        self.n_chan = 2**(self._n_chan_bits)
         self.n_input = n_input
         self._n_input_serial_bits = n_input_serial_bits
         self._acc_len = init_acc_len
+        self._is_descrambled = is_descrambled
+        self._descramble_order = get_casper_fft_descramble(self._n_chan_bits, self._n_chan_parallel_bits)
 
         self._n_cores = n_input // (2**self._n_input_serial_bits)
         self.n_input_per_block = n_input // self._n_cores
@@ -122,6 +130,9 @@ class autocorr(Block):
                 for subsignal in range(self.n_input_per_block):
                     dout[core*self.n_input_per_block + subsignal, stream::2**self._n_chan_parallel_bits] = \
                         x[subsignal*n_chan_per_stream:(subsignal+1)*n_chan_per_stream]
+        if not self._is_descrambled:
+            for i in range(self.n_input):
+                dout[i] = dout[i][self._descramble_order]
         return dout
 
     def _arm_readout(self):
@@ -177,7 +188,7 @@ class autocorr(Block):
 
         return spec
 
-    def plot_spectra(self, db=True, show=True, filter_ksize=None):
+    def plot_spectra(self, db=True, show=True, filter_ksize=None, freqrange=None):
         """
         Plot the spectra of all signals in a single signal_block,
         with accumulation length divided out
@@ -192,21 +203,32 @@ class autocorr(Block):
             with this kernel size. The kernet size should be odd.
         :type filter_ksize: int
 
+        :param freqrange: If provided, use these frequencies for the xaxis of plots.
+            Should be a list/array  containing [minimum_freq_hz, maximum_freq_hz].
+            The axis points are generated with `numpy.linspace(freqrange[0], freqrange[1], ...)
+        :type freqs: list
+
         :return: matplotlib.Figure
 
         """
         assert filter_ksize is None or filter_ksize % 2 == 1, "Filter kernel size should be odd"
         from matplotlib import pyplot as plt
         specs = self.get_new_spectra(filter_ksize=filter_ksize)
+        if freqrange is not None:
+            x = np.linspace(freqrange[0] / 1e6, freqrange[1] / 1e6, len(specs[0]))
+            xlabel = 'Frequency [MHz]'
+        else:
+            x = np.arange(len(specs[0]))
+            xlabel = 'Frequency [Channel Number]'
         f, ax = plt.subplots(1,1)
         if db:
             ax.set_ylabel('Power [dB]')
             specs = 10*np.log10(specs)
         else:
             ax.set_ylabel('Power [linear]')
-        ax.set_xlabel('Frequency Channel')
+        ax.set_xlabel(xlabel)
         for speci, spec in enumerate(specs):
-            ax.plot(spec, label="signal_%d" % (speci))
+            ax.plot(x, spec, label="signal_%d" % (speci))
         ax.legend()
         if show:
             plt.show()

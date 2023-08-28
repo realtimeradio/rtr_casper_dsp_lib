@@ -109,7 +109,7 @@ class autocorr_maxhold(autocorr):
         return spec, maxhold
 
 
-    def plot_maxhold(self, db=True, show=True):
+    def plot_maxhold(self, db=True, show=True, freqrange=None):
         """
         Plot the maxhold spectra of all inputs.
         
@@ -119,20 +119,31 @@ class autocorr_maxhold(autocorr):
         :param show: If True, call matplotlib's `show` after plotting
         :type show: bool
 
+        :param freqrange: If provided, use these frequencies for the xaxis of plots.
+            Should be a list/array  containing [minimum_freq_hz, maximum_freq_hz].
+            The axis points are generated with `numpy.linspace(freqrange[0], freqrange[1], ...)
+        :type freqs: list
+
         :return: matplotlib.Figure
 
         """
         from matplotlib import pyplot as plt
         specs = self.get_new_maxhold()
+        if freqrange is not None:
+            x = np.linspace(freqrange[0] / 1e6, freqrange[1] / 1e6, len(specs[0]))
+            xlabel = 'Frequency [MHz]'
+        else:
+            x = np.arange(len(specs[0]))
+            xlabel = 'Frequency [Channel Number]'
         f, ax = plt.subplots(1,1)
         if db:
             ax.set_ylabel('Power [dB]')
             specs = 10*np.log10(specs)
         else:
             ax.set_ylabel('Power [linear]')
-        ax.set_xlabel('Frequency Channel')
+        ax.set_xlabel(xlabel)
         for speci, spec in enumerate(specs):
-            ax.plot(spec, label="signal_%d" % (speci))
+            ax.plot(x, spec, label="signal_%d" % (speci))
         ax.legend()
         if show:
             plt.show()

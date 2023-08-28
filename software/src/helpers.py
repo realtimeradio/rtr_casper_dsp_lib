@@ -6,6 +6,7 @@ import redis
 import json
 import socket
 import struct
+import numpy as np
 
 
 logger = logging.getLogger(__name__)
@@ -78,3 +79,19 @@ def add_default_log_handlers(logger, redishostname=None, fglevel=logging.INFO, b
         redis_handler.setFormatter(formatter)
         logger.addHandler(redis_handler)
     return logger
+
+def get_casper_fft_descramble(n_bit_fft, n_bit_parallel):
+    """
+    Get the descramble map for a CASPER FFT with
+    2**n_bit_fft channels, presenting 2**n_bit_parallel
+    on each cycle
+    """
+    n_fft = 2**n_bit_fft
+    n_parallel = 2**n_bit_parallel
+    return np.arange(n_fft).reshape(n_fft // n_parallel, n_parallel).transpose().flatten()
+
+def bit_reverse(x, n_bit):
+    """
+    Return the n_bit bit-reversed integer of x
+    """
+    return int(np.binary_repr(x, width=n_bit)[::-1], 2)
