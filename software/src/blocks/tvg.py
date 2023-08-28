@@ -112,7 +112,7 @@ class tvg(Block):
 
         """
         core_name = f'0_{stream}'
-        s = self.read(core_name, self._stream_size)
+        s = self.read(core_name, self._input_vector_size)
         tvg = np.frombuffer(s, dtype=self.dtype)
 
         #if makecomplex:
