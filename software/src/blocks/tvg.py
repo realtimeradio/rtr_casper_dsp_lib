@@ -2,7 +2,7 @@ import numpy as np
 import struct
 from .block import Block
 from ..error_levels import *
-from ..helpers import get_casper_fft_scramble
+from ..helpers import get_casper_fft_scramble, get_casper_fft_descramble
 
 class tvg(Block):
     """
@@ -39,7 +39,7 @@ class tvg(Block):
     """
     #_FORMAT = 'B'
     def __init__(self, host, name, n_input, n_chan, n_chan_serial_bits,
-            use_descramble, dtype, logger=None, **kwargs):
+            use_scramble, dtype, logger=None, **kwargs):
         super(tvg, self).__init__(host, name, logger=logger, **kwargs)
         self.n_input = n_input
         self.n_chan = n_chan
@@ -47,14 +47,13 @@ class tvg(Block):
         self._n_byte_per_word = np.dtype(dtype).itemsize
         # number of bytes in a single stream
         self._input_vector_size = n_chan * self._n_byte_per_word
-        self._use_scramble = use_descramble == "on"
+        self._use_scramble = use_scramble == "on"
         if self._use_scramble:
             assert self.n_chan % 2**n_chan_serial_bits == 0
-            n_chan_bits = int(np.ceil(np.log2(self.n_chan)))
-            n_chan_parallel_bits = n_chan_bits - n_chan_serial_bits
-            self._scramble_order = get_casper_fft_scramble(n_chan_bits, n_chan_parallel_bits)
-        else:
-            self._scramble_order = np.arange(self.n_chan)
+        n_chan_bits = int(np.ceil(np.log2(self.n_chan)))
+        n_chan_parallel_bits = n_chan_bits - n_chan_serial_bits
+        self._scramble_order = get_casper_fft_scramble(n_chan_bits, n_chan_parallel_bits)
+        self._descramble_order = get_casper_fft_descramble(n_chan_bits, n_chan_parallel_bits)
 
     def tvg_enable(self):
         """
@@ -90,7 +89,9 @@ class tvg(Block):
         :type test_vector: list or numpy.ndarray
 
         """
-        tv = np.array(test_vector, dtype=self.dtype)[self._scramble_order]
+        tv = np.array(test_vector, dtype=self.dtype)
+        if self._use_scramble:
+            tv = tv[self._scramble_order]
         assert (tv.shape[0] == self.n_chan), "Test vector should have self.n_chan elements!"
         core_name = f'0_{stream}'
         self.write(core_name, tv.tobytes())
@@ -133,6 +134,8 @@ class tvg(Block):
         core_name = f'0_{stream}'
         s = self.read(core_name, self._input_vector_size)
         tvg = np.frombuffer(s, dtype=self.dtype)
+        if self._use_scramble:
+            tvg = tvg[self._descramble_order]
 
         #if makecomplex:
         #    assert self._FORMAT == 'B', "Don't know how to make '%s' format values complex" % self._FORMAT
