@@ -19,14 +19,21 @@ class input(Block):
     :param name: Name of block in Simulink hierarchy.
     :type name: str
 
-    :param logger: Logger instance to which log messages should be emitted.
-    :type logger: logging.Logger
-
     :param n_inputs: Number of independent signals
     :type n_inputs: int
 
+    :param n_acc_len_bits: Number of samples accumulated (2^?)
+    :type n_acc_len_bits: int
+
+    :param n_bits: Number of bits per input ADC sample
+    :type n_bits: int
+
     :ivar n_parallel: Number of parallel samples per signal.
     :ivar n_parallel: int
+
+    :param logger: Logger instance to which log messages should be emitted.
+    :type logger: logging.Logger
+
     """
     _USE_NOISE = 0
     _USE_ADC   = 1
@@ -37,12 +44,13 @@ class input(Block):
     _INT_TO_POS[_USE_ADC]   = 'adc'
     _INT_TO_POS[_USE_ZERO]  = 'zero'
     _INT_TO_POS[_USE_COUNTER] = 'counter'
-    _acc_len = 2**16
 
-    def __init__(self, host, name, n_inputs, n_parallel, logger=None, **kwargs):
+    def __init__(self, host, name, n_bits, n_inputs, n_parallel, n_acc_len_bits, logger=None, **kwargs):
         super(input, self).__init__(host, name, logger, **kwargs)
+        self.n_bits = n_bits
         self.n_inputs = n_inputs
         self.n_parallel = n_parallel
+        self.n_acc_len_bits = n_acc_len_bits
 
     def get_switch_positions(self):
         """
@@ -153,12 +161,14 @@ class input(Block):
         n_val = self.n_inputs * self.n_parallel
         x = np.frombuffer(self.read('rms_levels', n_val * 8), dtype='>u8')
         self.write_int('rms_enable', 1)
-        # Top 29 bits of data are signed means
-        # Lower 35 bits are unsigned powers
-        means    = (x >> 35).astype(np.int64)
-        means[means >= 2**28] -= 2**29
-        means    = means.astype(float) / self._acc_len
-        powers   = (x & (2**35 - 1)) / self._acc_len
+        # Lower bits are unsigned powers
+        power_bits = (2*self.n_bits - 1) + self.n_acc_len_bits
+        # MSBs are signed means
+        mean_bits = 64 - power_bits
+        means    = (x >> power_bits).astype(np.int64)
+        means[means >= 2**(mean_bits-1)] -= 2**mean_bits
+        means    = means.astype(float) / 2**self.n_acc_len_bits
+        powers   = (x & (2**power_bits - 1)) / 2**self.n_acc_len_bits
         if combine_parallel:
             means = means.reshape(self.n_inputs, self.n_parallel).mean(axis=1)
             powers = powers.reshape(self.n_inputs, self.n_parallel).mean(axis=1)
