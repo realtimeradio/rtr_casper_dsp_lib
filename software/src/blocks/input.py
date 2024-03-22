@@ -28,8 +28,14 @@ class input(Block):
     :param n_bits: Number of bits per input ADC sample
     :type n_bits: int
 
-    :ivar n_parallel: Number of parallel samples per signal.
-    :ivar n_parallel: int
+    :param n_parallel: Number of parallel samples per signal.
+    :param n_parallel: int
+
+    :param is_complex: If 'on', input data are complex. Else real.
+    :type is_complex: str
+
+    :param dtype: Numpy style data type string indicating sample format. Eg. '>i2'
+    :type dtype: str
 
     :param logger: Logger instance to which log messages should be emitted.
     :type logger: logging.Logger
@@ -45,12 +51,15 @@ class input(Block):
     _INT_TO_POS[_USE_ZERO]  = 'zero'
     _INT_TO_POS[_USE_COUNTER] = 'counter'
 
-    def __init__(self, host, name, n_bits, n_inputs, n_parallel, n_acc_len_bits, logger=None, **kwargs):
+    def __init__(self, host, name, n_bits, n_inputs, n_parallel, n_acc_len_bits,
+            is_complex='on', dtype='>i2', logger=None, **kwargs):
         super(input, self).__init__(host, name, logger, **kwargs)
         self.n_bits = n_bits
         self.n_inputs = n_inputs
         self.n_parallel = n_parallel
         self.n_acc_len_bits = n_acc_len_bits
+        self.is_complex = is_complex == 'on'
+        self.dtype = dtype
 
     def get_switch_positions(self):
         """
@@ -234,6 +243,119 @@ class input(Block):
             if np.abs(mean[i]) > 2:
                 flags['mean%.2d' % i] = RTR_WARNING
         return stats, flags
+
+    def _trigger_snapshot(self):
+        """
+        Simultaneously trigger all ADC streams to record a snapshot of data.
+        """
+        self.write_int('ss_arm', 0)
+        self.write_int('ss_trig', 0)
+        self.write_int('ss_arm', 1)
+        self.write_int('ss_trig', 1)
+        self.write_int('ss_arm', 0)
+        self.write_int('ss_trig', 0)
+
+    def get_snapshot(self, trigger=True):
+        """
+        Read a snapshot of data from all ADC channels.
+        Return time series for each channel.
+
+        :param trigger: If True, trigger a new simultaneous capture of data from
+            all channels. If False, read existing data capture. 
+        :type trigger: bool
+
+        :return: Array of captured data with dimensions
+            [ADC_CHANNEL, TIME_SAMPLES].
+        :rtype: numpy.array
+        """
+        if trigger:
+            self._trigger_snapshot()
+        d = []
+        for i in range(self.n_inputs):
+            ss_name = f'ss_{i}'
+            try:
+                ss = self.snapshots[ss_name]
+            except KeyError:
+                self._error(f'Could not find snapshot {ss_name}')
+                raise
+            raw = ss.read_raw(arm=False, timeout=0.1)[0]['data']
+            ints = np.frombuffer(raw, dtype=self.dtype)
+            if self.is_complex:
+                d += [ints[0::2] + 1j*ints[1::2]]
+            else:
+                d += [ints]
+        return np.array(d)
+
+    def plot_snapshot(self, n_points=-1, signals=[], show=True):
+        """
+        Plot a new snapshot of data using matplotlib
+
+        :param show: If True, call show() after plotting.
+        :type show: bool
+
+        :param n_points: Number of points to plot. Use -1 to plot all points.
+        :type n_points: int
+
+        :param signals: List of signals to plot, e.g. [0,1]. Empty list means "plot everything"
+        :type signals:
+
+        :return: matplotlib figure instance
+        :rtype: matploitlib.Figure
+        """
+        from matplotlib import pyplot as plt
+
+        x = self.get_snapshot(trigger=True)
+        fig = plt.figure()
+        for i in range(self.n_inputs):
+            if signals != [] and i not in signals:
+                continue
+            if self.is_complex:
+                plt.plot(np.real(x[i, 0 : n_points]), label=f'real{i}')
+                plt.plot(np.imag(x[i, 0 : n_points]), label=f'imag{i}')
+            else:
+                plt.plot(x[i, 0 : n_points], label=i)
+        plt.legend()
+        if show:
+            plt.show()
+        return fig
+
+    def plot_spectrum(self, db=False, acc_len=1, show=True):
+        """
+        Plot a power spectrum of the ADC input stream using a simple FFT.
+
+        :param db: If True, plot in dBs, else linear.
+        :type db: bool
+
+        :param show: If True, call show() after plotting.
+        :type show: bool
+
+        :param acc_len: Number of snapshots to sum.
+        :type acc_len: int
+
+        :return: matplotlib figure instance
+        :rtype: matploitlib.Figure
+        """
+        from matplotlib import pyplot as plt
+        x = self.get_snapshot()
+        X = np.abs(np.fft.fft(x, axis=1))**2
+        if acc_len > 1:
+            for i in range(acc_len-1):
+                x = self.get_snapshot()
+                X += np.abs(np.fft.fft(x, axis=1))**2
+        if db:
+            X = 10*np.log10(X)
+        fig = plt.figure()
+        for i in range(X.shape[0]):
+            plt.plot(np.fft.fftshift(X[i]), label=i)
+        plt.legend()
+        plt.xlabel('FFT bin (DC-centered)')
+        if db:
+            plt.ylabel('Power (dB; Arbitrary Reference)')
+        else:
+            plt.ylabel('Power (Linear, Arbitrary Reference)')
+        if show:
+            plt.show()
+        return fig
 
     #def _set_histogram_input(self, stream):
     #    """
