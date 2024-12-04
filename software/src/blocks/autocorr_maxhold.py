@@ -40,8 +40,8 @@ class autocorr_maxhold(autocorr):
     :ivar n_input_per_block: Number of signal streams handled by a
         single correlation core.
     """
-    _maxhold_dtype = '>u4'
-    _bin_pt = 30
+    _bin_pt = 0
+    _maxhold_dtype = '>f4'
     def get_new_maxhold(self, flush_vacc='auto', wait_on_new=True):
         """
         Get a new max hold power spectra.
